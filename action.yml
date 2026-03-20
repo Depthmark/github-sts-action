@@ -1,0 +1,52 @@
+# Copyright 2026 Alexandre Delisle
+# SPDX-License-Identifier: MIT
+
+name: 'github-sts'
+description: |
+  Exchange the workflow's OIDC identity token for a scoped GitHub App
+  installation token via a self-hosted github-sts service, in accordance
+  with the trust policy of the target organization or repository.
+
+inputs:
+  sts-url:
+    description: |
+      The base URL of the github-sts instance (e.g. https://github-sts.example.com).
+    required: true
+
+  scope:
+    description: |
+      The org/repo to which to request access (e.g. my-org/my-repo).
+    required: true
+
+  identity:
+    description: |
+      The name of the trust policy to evaluate. The policy is loaded from
+      .github/sts/{app}/{identity}.sts.yaml in the target repository.
+    required: true
+
+  app:
+    description: |
+      GitHub App name configured on the STS server. Optional if only one app
+      is configured on the server.
+    required: false
+
+  audience:
+    description: |
+      OIDC audience to request when fetching the identity token.
+    default: 'github-sts'
+
+  github-api-url:
+    description: |
+      GitHub API base URL. Override for GitHub Enterprise Server
+      (e.g. https://github.example.com/api/v3).
+    default: 'https://api.github.com'
+
+outputs:
+  token:
+    description: |
+      The scoped GitHub installation token.
+
+runs:
+  using: 'node24'
+  main: 'index.js'
+  post: 'post.js'
