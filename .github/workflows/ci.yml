@@ -1,0 +1,48 @@
+---
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check index.js
+          node --check post.js
+
+      - name: Validate action.yml
+        run: |
+          node -e "
+            const fs = require('fs');
+            const yaml = fs.readFileSync('action.yml', 'utf8');
+            if (!yaml.includes('name:')) throw new Error('action.yml missing name');
+            if (!yaml.includes('description:')) throw new Error('action.yml missing description');
+            if (!yaml.includes('runs:')) throw new Error('action.yml missing runs');
+            console.log('action.yml structure OK');
+          "
+
+      - name: Ensure no node_modules checked in
+        run: |
+          if [ -d node_modules ]; then
+            echo "::error::node_modules directory should not be committed"
+            exit 1
+          fi
