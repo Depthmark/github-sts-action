@@ -1,7 +1,7 @@
 # Copyright 2026 Alexandre Delisle
 # SPDX-License-Identifier: MIT
 
-name: 'github-sts'
+name: 'GitHub STS Provider'
 description: |
   Exchange the workflow's OIDC identity token for a scoped GitHub App
   installation token via a self-hosted github-sts service, in accordance
