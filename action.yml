@@ -46,6 +46,10 @@ outputs:
     description: |
       The scoped GitHub installation token.
 
+branding:
+  icon: 'shield'
+  color: 'blue'
+
 runs:
   using: 'node24'
   main: 'index.js'

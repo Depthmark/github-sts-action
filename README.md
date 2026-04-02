@@ -201,6 +201,141 @@ permissions:
 
 ---
 
+## Best Practices
+
+### Pin to a major version tag
+
+Reference the action by its major version tag rather than a branch. This gives you automatic patch and minor updates while avoiding unexpected breaking changes:
+
+```yaml
+- uses: Depthmark/github-sts-action@v0  # stable — tracks v0.x.x
+```
+
+For maximum reproducibility, pin to an exact commit SHA:
+
+```yaml
+- uses: Depthmark/github-sts-action@<full-commit-sha>  # v0.0.2
+```
+
+### Grant least-privilege permissions
+
+Only request the permissions your workflow actually needs in the trust policy:
+
+```yaml
+# Good — scoped to what the job needs
+permissions:
+  contents: read
+  pull_requests: write
+
+# Avoid — overly broad
+permissions:
+  contents: write
+  administration: write
+  members: write
+```
+
+### Prefer exact subjects over patterns
+
+Use `subject` (exact match) instead of `subject_pattern` (regex) whenever your workflow runs from a known, fixed ref. Exact matches eliminate the risk of unintended callers:
+
+```yaml
+# Preferred — only main branch can use this policy
+subject: "repo:my-org/my-repo:ref:refs/heads/main"
+
+# Use patterns only when multiple refs are intentional
+subject_pattern: "repo:my-org/my-repo:ref:refs/heads/(main|release/.*)"
+```
+
+### Add claim constraints for defense in depth
+
+Use `claim_pattern` to restrict tokens beyond just the subject. Constraining `job_workflow_ref` ensures only a specific workflow file can trigger the exchange:
+
+```yaml
+subject: "repo:my-org/my-repo:ref:refs/heads/main"
+claim_pattern:
+  job_workflow_ref: "my-org/my-repo/.github/workflows/deploy.yml@.*"
+  runner_environment: "github-hosted"
+```
+
+### Set `id-token: write` at the job level
+
+Declare the OIDC permission on the specific job that needs it, not at the workflow level. This prevents other jobs in the same workflow from requesting OIDC tokens:
+
+```yaml
+jobs:
+  deploy:
+    permissions:
+      id-token: write    # only this job gets OIDC access
+      contents: read
+    steps:
+      - uses: Depthmark/github-sts-action@v0
+        # ...
+
+  lint:
+    permissions:
+      contents: read     # no id-token — cannot call STS
+    steps:
+      # ...
+```
+
+### Prefer repository scope over organization scope
+
+Repository-scoped tokens have a smaller blast radius. Only use org scope when you genuinely need cross-repository access, and pair it with the `repositories` field to limit reach:
+
+```yaml
+subject_pattern: "repo:my-org/deployer:.*"
+repositories:
+  - frontend
+  - backend
+permissions:
+  contents: read
+```
+
+### Use one identity per use case
+
+Create separate trust policies for distinct workflows rather than sharing a single broad policy. This makes it easy to audit and revoke access independently:
+
+```
+.github/sts/default/
+  ci.sts.yaml          # read-only, any branch
+  deploy.sts.yaml      # write, main only, constrained to deploy.yml
+  release.sts.yaml     # write, release branches only
+```
+
+### Centralize `sts-url` in a GitHub Actions variable
+
+Store the STS server URL as a [GitHub Actions variable](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables) at the organization or repository level instead of hardcoding it in every workflow:
+
+```yaml
+- uses: Depthmark/github-sts-action@v0
+  with:
+    sts-url: ${{ vars.STS_URL }}
+    scope: my-org/my-repo
+    identity: ci
+```
+
+### Limit token exposure within the job
+
+Pass the token only to steps that need it. Avoid setting it as a job-level environment variable, which would expose it to every step including third-party actions:
+
+```yaml
+steps:
+  - uses: Depthmark/github-sts-action@v0
+    id: sts
+    with:
+      sts-url: ${{ vars.STS_URL }}
+      scope: my-org/target-repo
+      identity: ci
+
+  # Good — token scoped to this step only
+  - name: Push changes
+    env:
+      GITHUB_TOKEN: ${{ steps.sts.outputs.token }}
+    run: gh repo clone my-org/target-repo
+```
+
+---
+
 ## Error Reference
 
 The action provides clear, actionable error messages for every failure mode:
@@ -261,6 +396,49 @@ The action writes a summary to the GitHub Actions job summary on every run.
 - **Input validation** — `scope`, `identity`, and `app` are validated against strict allowlists before any network call
 - **Injection-safe outputs** — `GITHUB_OUTPUT` and `GITHUB_STATE` use the multiline delimiter format with random boundaries, preventing value injection
 - **Workflow command sanitization** — All untrusted strings are sanitized before interpolation into `::error::` / `::warning::` log commands
+
+---
+
+## Development
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 24+
+- [act](https://github.com/nektos/act) (optional, for running CI locally)
+
+### Available make targets
+
+```
+make help         Show all targets
+make check        Check JavaScript syntax (node --check)
+make validate     Validate action.yml structure
+make act-ci       Run the CI workflow locally with act
+make act          Alias for act-ci
+```
+
+### Running CI locally with act
+
+[act](https://github.com/nektos/act) lets you run GitHub Actions workflows locally using Docker. Install it, then:
+
+```bash
+make act-ci
+```
+
+This runs the CI workflow against the `ubuntu-latest` platform image. Override the image with:
+
+```bash
+make act-ci ACT_IMAGE=ghcr.io/catthehacker/ubuntu:act-22.04
+```
+
+### Release lifecycle
+
+This project uses [Release Please](https://github.com/googleapis/release-please) with [conventional commits](https://www.conventionalcommits.org/):
+
+1. Push conventional commits to `main` (e.g. `feat:`, `fix:`)
+2. Release Please opens a release PR with changelog and version bump
+3. Merge the release PR to create a GitHub Release and semver tag (e.g. `v0.0.2`)
+4. The `update-major-tag` job moves the floating `v0` tag forward
+5. Users reference the action as `@v0` (recommended) or `@v0.0.2` (pinned)
 
 ---
 
