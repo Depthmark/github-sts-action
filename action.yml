@@ -3,9 +3,7 @@
 
 name: 'GitHub STS Provider'
 description: |
-  Exchange the workflow's OIDC identity token for a scoped GitHub App
-  installation token via a self-hosted github-sts service, in accordance
-  with the trust policy of the target organization or repository.
+  Exchange the workflow's OIDC identity token for a scoped GitHub App.
 
 inputs:
   sts-url:
