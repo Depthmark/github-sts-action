@@ -492,6 +492,13 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 4. The `update-major-tag` job moves the floating `v0` tag forward
 5. Users reference the action as `@v0` (recommended) or `@v0.0.2` (pinned)
 
+The release workflow authenticates with this action itself: it exchanges the
+workflow's OIDC token for a `depthmark-release-bot` installation token using the
+`release` identity defined in
+[`.github/sts/depthmark-release-bot/release.sts.yaml`](.github/sts/depthmark-release-bot/release.sts.yaml).
+That policy only accepts tokens minted for `.github/workflows/release-please.yml`
+on `refs/heads/main`, so no PAT is stored in the repository.
+
 ---
 
 ## License

@@ -6,6 +6,10 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
@@ -16,17 +20,28 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      id-token: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
       major: ${{ steps.release.outputs.major }}
     steps:
+      - name: Exchange OIDC token for a release-bot token
+        id: sts
+        uses: Depthmark/github-sts-action@11e9b4095d2f3033d0ee7e82bb9ac6a7bcbc9b48 # v0.2.0
+        with:
+          sts-url: https://github-sts-dev.adelisle.com
+          scope: Depthmark/github-sts-action
+          identity: release
+          app: depthmark-release-bot
+
       - name: Run Release Please
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          token: ${{ steps.sts.outputs.token }}
 
   update-major-tag:
     name: Update major version tag
@@ -35,18 +50,29 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
+      - name: Exchange OIDC token for a release-bot token
+        id: sts
+        uses: Depthmark/github-sts-action@11e9b4095d2f3033d0ee7e82bb9ac6a7bcbc9b48 # v0.2.0
+        with:
+          sts-url: https://github-sts-dev.adelisle.com
+          scope: Depthmark/github-sts-action
+          identity: release
+          app: depthmark-release-bot
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          token: ${{ steps.sts.outputs.token }}
 
       - name: Update major version tag
         env:
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
           MAJOR: ${{ needs.release-please.outputs.major }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "depthmark-release-bot[bot]"
+          git config user.email "271856487+depthmark-release-bot[bot]@users.noreply.github.com"
           git tag -fa "v${MAJOR}" "${TAG_NAME}" -m "Release ${TAG_NAME}"
           git push origin "v${MAJOR}" --force

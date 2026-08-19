@@ -1,0 +1,28 @@
+# Trust policy for the release automation identity.
+#
+# Consumed by .github/workflows/release-please.yml, which exchanges the
+# workflow's OIDC token for a depthmark-release-bot installation token scoped
+# to this repository. Identity resolves from the request as
+# app=depthmark-release-bot, identity=release.
+issuer: https://token.actions.githubusercontent.com
+
+claim_pattern:
+  ref: "refs/heads/main"
+  workflow_ref: "[^/]+/[^/]+/\\.github/workflows/release-please\\.yml@refs/heads/main"
+
+audience: github-sts
+
+# Immutable identity: owner/repository IDs survive renames, so the workflow_ref
+# pattern above stays deliberately name-agnostic.
+github:
+  sources:
+    - owner_id: "268749784"
+      repository_id: "1183735921"
+  target:
+    owner_id: "268749784"
+    repository_id: "1183735921"
+
+permissions:
+  contents: write
+  checks: write
+  pull_requests: write
