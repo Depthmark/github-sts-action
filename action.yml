@@ -42,7 +42,33 @@ inputs:
 outputs:
   token:
     description: |
-      The scoped GitHub installation token.
+      The scoped GitHub installation token. Empty if the exchange failed.
+
+  error-code:
+    description: |
+      Set only when the exchange fails (empty on success). Either the exact
+      machine-readable `code` returned by the STS server's
+      {"error","code","trace_id"} response body (e.g. `policy_denied`,
+      `upstream_error` — see your github-sts instance's API reference for
+      the full server-side list), or one of this action's own `action_`-
+      prefixed codes for failures that never reach the server:
+      `action_invalid_input`, `action_missing_oidc_env`,
+      `action_oidc_fetch_failed`, `action_connection_failed`,
+      `action_invalid_response`, `action_malformed_error_response`,
+      `action_internal_error`. Use this instead of parsing the log or job
+      summary to branch on failure reason (with `continue-on-error: true`
+      on this step).
+
+  error-message:
+    description: |
+      Set only when the exchange fails. Human-readable description of
+      error-code; the same text written to the step's ::error:: annotation.
+
+  http-status:
+    description: |
+      Set only when the exchange fails and a response was actually received
+      from the STS server (empty for input-validation, OIDC, and connection
+      failures, which never reach it).
 
 branding:
   icon: 'shield'

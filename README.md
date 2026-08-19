@@ -45,7 +45,10 @@ The token is automatically **revoked** when the job completes.
 
 | Output | Description |
 |---|---|
-| `token` | Short-lived GitHub App installation token scoped to the permissions in the trust policy |
+| `token` | Short-lived GitHub App installation token scoped to the permissions in the trust policy. Empty if the exchange failed. |
+| `error-code` | Set only on failure. Either the exact `code` your github-sts server returned (see [Error Reference](#error-reference)), or one of this action's own `action_`-prefixed codes for failures that never reach the server. Use this to branch on failure reason instead of parsing logs. |
+| `error-message` | Set only on failure. Human-readable description — the same text sent to the `::error::` annotation. |
+| `http-status` | Set only on failure, and only when a response was actually received from the STS server. Empty for input-validation, OIDC, and connection failures. |
 
 ---
 
@@ -199,6 +202,34 @@ permissions:
   deployments: write
 ```
 
+### Handling Failures Programmatically
+
+Use `continue-on-error: true` plus the `error-code` output to branch on
+*why* the exchange failed, instead of treating any non-success the same way
+or scraping log text — see [Error Reference](#error-reference) for the full
+list of values:
+
+```yaml
+      - uses: Depthmark/github-sts-action@v0
+        id: sts
+        continue-on-error: true
+        with:
+          sts-url: ${{ vars.STS_URL }}
+          scope: my-org/my-repo
+          identity: ci
+
+      - name: Handle result
+        run: |
+          if [ "${{ steps.sts.outcome }}" = "success" ]; then
+            echo "Got a token"
+          elif [ "${{ steps.sts.outputs.error-code }}" = "replay_detected" ]; then
+            echo "Transient — safe to retry"
+          else
+            echo "::error::${{ steps.sts.outputs.error-code }}: ${{ steps.sts.outputs.error-message }}"
+            exit 1
+          fi
+```
+
 ---
 
 ## Best Practices
@@ -338,18 +369,39 @@ steps:
 
 ## Error Reference
 
-The action provides clear, actionable error messages for every failure mode:
+Every failure sets `error-code` (see [Outputs](#outputs)) — use it to branch
+programmatically instead of parsing log text. Values marked "server" are
+passed straight through from your github-sts instance's own
+`{"error":...,"code":...,"trace_id":...}` response (see its own API
+reference for the authoritative, up-to-date list — this table mirrors it as
+of this action's own testing, not the other way around). Values marked
+"action" never reach the server at all.
 
-| HTTP Status | Error | Cause | Fix |
-|---|---|---|---|
-| — | `Missing OIDC environment variables` | `id-token: write` not set in workflow | Add `permissions: id-token: write` to your job or workflow |
-| 400 | `Configuration error` | Invalid or missing `app` parameter | Check the `app` input matches a configured app on the STS server |
-| 401 | `OIDC token validation failed` | Token expired, malformed, wrong issuer, or bad signature | Verify the OIDC issuer is in the STS server's `allowed_issuers` list |
-| 403 | `Trust policy denied the request` | OIDC claims don't match the trust policy | Check `subject`/`subject_pattern` and `issuer` in the `.sts.yaml` file match your workflow's OIDC claims |
-| 404 | `Trust policy not found` | No policy file at the expected path | Create `.github/sts/{app}/{identity}.sts.yaml` in the target repository |
-| 409 | `Token replay detected` | Same OIDC token used twice (JTI replay prevention) | This is a transient issue — re-run the workflow to get a fresh token |
-| 500 | `STS server error` | Internal server error (retried automatically) | Check the STS server logs for details |
-| Network | `Failed to connect to STS` | Cannot reach the STS server (retried automatically) | Verify `sts-url` is correct and the server is accessible from GitHub Actions runners |
+| `error-code` | Source | HTTP | Cause | Fix |
+|---|---|---|---|---|
+| `action_invalid_input` | action | — | Missing/malformed `sts-url`, `scope`, `identity`, or `app` input | Check the input against `action.yml`'s format rules |
+| `action_missing_oidc_env` | action | — | `id-token: write` not set in the workflow | Add `permissions: id-token: write` to your job or workflow |
+| `action_oidc_fetch_failed` | action | — | Couldn't get an OIDC token from GitHub Actions itself | Usually transient — re-run; if persistent, check GitHub Actions status |
+| `action_connection_failed` | action | — | Couldn't reach the STS server after 3 retries (network, or a non-github-sts error body) | Verify `sts-url` is correct and reachable from GitHub Actions runners |
+| `action_invalid_response` | action | 200 | STS responded `200` but the body had no `token` | Check the STS server logs — this indicates a server-side bug |
+| `action_malformed_error_response` | action | 4xx/5xx | STS returned an error whose body wasn't the expected `{"code":...}` shape | Check the STS server version/logs — its error format may have changed |
+| `action_internal_error` | action | — | Unexpected exception in the action itself | Check the full log; consider filing an issue |
+| `bad_request` | server | 400 | Malformed request (bad scope format, invalid JSON, unsupported org scope) | Check `scope`/`identity`/`app` formatting |
+| `oidc_invalid` | server | 403 | OIDC token rejected (expired, bad signature, unknown issuer) | Verify the OIDC issuer is in the STS server's `allowed_issuers` list |
+| `github_identity_invalid` | server | 403 | Missing/contradictory immutable ID claims in the OIDC token | Check the source repository's Actions OIDC settings |
+| `audience_mismatch` | server | 403 | Token's `aud` doesn't match the policy's `audience:` | Pass the right `audience` input, or update the policy |
+| `app_unknown` | server | 403 | `app` input doesn't match a configured app on the STS server | Check spelling, or omit when only one app is configured |
+| `policy_not_found` | server | 403 | No `.sts.yaml` at `{app}/{identity}` in the target (or org policy) repo | Create `.github/sts/{app}/{identity}.sts.yaml` |
+| `trust_policy_invalid` | server | 403 | The loaded policy file is malformed | Fix the policy file; see the STS server's audit log |
+| `policy_denied` | server | 403 | OIDC claims don't match the trust policy | Check `subject`/`subject_pattern`/`issuer` in the `.sts.yaml` against your workflow's real OIDC claims |
+| `org_policy_denied` | server | 403 | An enterprise Rego bundle denied the request after the YAML policy allowed it | Check the STS server's bundle decision audit log |
+| `replay_detected` | server | 409 | Same OIDC token used twice (JTI replay prevention) | Transient — re-run the workflow to mint a fresh token |
+| `upstream_error` | server | 502 | Policy fetch or GitHub token mint failed — e.g. the trust policy allows a permission the App itself doesn't have installed | Check the App's installed permissions match what the policy grants |
+
+Server codes not listed here (`method_not_allowed`, `bundle_stale`,
+`bundle_unavailable`, `bundle_evaluation_failed`, `internal_error`) are
+passed through identically — `error-code` always mirrors whatever your
+server returns.
 
 ---
 
