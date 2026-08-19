@@ -190,6 +190,23 @@ async function fetchWithRetry(url, options = {}, retries = 3, initialDelay = 100
 }
 
 /**
+ * Write the error-code / error-message / http-status outputs for a failed
+ * run. Called at every failure path (before the matching process.exit(1))
+ * so a caller using continue-on-error: true gets a structured, documented
+ * reason instead of having to scrape the log or step summary for it.
+ */
+function writeErrorOutputs({ code, message, httpStatus }) {
+  if (!process.env.GITHUB_OUTPUT) return;
+  appendFileCommand(process.env.GITHUB_OUTPUT, 'error-code', code);
+  appendFileCommand(process.env.GITHUB_OUTPUT, 'error-message', message);
+  appendFileCommand(
+    process.env.GITHUB_OUTPUT,
+    'http-status',
+    httpStatus === undefined || httpStatus === null ? '' : String(httpStatus)
+  );
+}
+
+/**
  * Write a GitHub Actions job summary (markdown).
  */
 function writeSummary(markdown) {
@@ -262,61 +279,61 @@ if (require.main === module) {
 
   // ── Prerequisite checks ──────────────────────────────────────────────────
 
-  if (!stsUrl) {
-    console.log("::error::Missing required input 'sts-url'.");
+  function failInvalidInput(message) {
+    console.log(`::error::${sanitizeForCommand(message)}`);
+    writeErrorOutputs({ code: 'action_invalid_input', message });
     process.exit(1);
+  }
+
+  if (!stsUrl) {
+    failInvalidInput("Missing required input 'sts-url'.");
   }
   if (!scope) {
-    console.log("::error::Missing required input 'scope'.");
-    process.exit(1);
+    failInvalidInput("Missing required input 'scope'.");
   }
   if (!identity) {
-    console.log("::error::Missing required input 'identity'.");
-    process.exit(1);
+    failInvalidInput("Missing required input 'identity'.");
   }
 
   try {
     validateUrl(stsUrl, 'sts-url');
   } catch (e) {
-    console.log(`::error::${sanitizeForCommand(e.message)}`);
-    process.exit(1);
+    failInvalidInput(e.message);
   }
   try {
     validateUrl(githubApiUrl, 'github-api-url');
   } catch (e) {
-    console.log(`::error::${sanitizeForCommand(e.message)}`);
-    process.exit(1);
+    failInvalidInput(e.message);
   }
   try {
     validateScope(scope);
   } catch (e) {
-    console.log(`::error::${sanitizeForCommand(e.message)}`);
-    process.exit(1);
+    failInvalidInput(e.message);
   }
   try {
     validateIdentity(identity);
   } catch (e) {
-    console.log(`::error::${sanitizeForCommand(e.message)}`);
-    process.exit(1);
+    failInvalidInput(e.message);
   }
   try {
     validateApp(app);
   } catch (e) {
-    console.log(`::error::${sanitizeForCommand(e.message)}`);
-    process.exit(1);
+    failInvalidInput(e.message);
   }
 
   if (!actionsToken || !actionsUrl) {
-    console.log(
-      "::error::Missing OIDC environment variables. " +
-      "Ensure your workflow has 'permissions: id-token: write' set."
-    );
+    const message =
+      "Missing OIDC environment variables. " +
+      "Ensure your workflow has 'permissions: id-token: write' set.";
+    console.log(`::error::${message}`);
+    writeErrorOutputs({ code: 'action_missing_oidc_env', message });
     process.exit(1);
   }
 
   (async function main() {
+    // ── Step 1: Fetch OIDC token from GitHub Actions ─────────────────────
+    let oidcToken;
     try {
-      // ── Step 1: Fetch OIDC token from GitHub Actions ───────────────────
       const oidcUrl = new URL(actionsUrl);
       oidcUrl.searchParams.set('audience', audience);
       const oidcRes = await fetchWithRetry(
@@ -329,12 +346,17 @@ if (require.main === module) {
         throw new Error(`Failed to fetch OIDC token from GitHub Actions: ${errText}`);
       }
       const oidcJson = await oidcRes.json();
-      const oidcToken = oidcJson.value;
-
+      oidcToken = oidcJson.value;
       if (!oidcToken) {
         throw new Error('GitHub Actions OIDC response did not contain a token.');
       }
+    } catch (oidcErr) {
+      console.log(`::error::${sanitizeForCommand(oidcErr.message)}`);
+      writeErrorOutputs({ code: 'action_oidc_fetch_failed', message: oidcErr.message });
+      process.exit(1);
+    }
 
+    try {
       // Debug-log OIDC claims (grouped so they collapse in the UI)
       try {
         const claims = parseJwtClaims(oidcToken);
@@ -366,23 +388,47 @@ if (require.main === module) {
           3,
         );
       } catch (fetchErr) {
-        // All retries exhausted (network or 5xx)
+        // All retries exhausted (network, or a 5xx that never stopped
+        // recurring). Some 5xx codes are genuinely deterministic — e.g.
+        // github-sts's own `upstream_error` (502) fails identically on
+        // every retry — and fetchWithRetry's lastError already carries the
+        // final attempt's parsed .status/.body. Surface the real server
+        // code from that body when there is one, instead of a generic
+        // connection-failure code that would hide it.
+        let serverCode = null;
+        if (fetchErr.body) {
+          try {
+            const errJson = JSON.parse(fetchErr.body);
+            serverCode = typeof errJson.code === 'string' ? errJson.code : null;
+          } catch {
+            // Not a github-sts JSON error body — genuinely a connection/infra failure.
+          }
+        }
+
+        const detail = `Failed to reach STS at ${stsUrl} after multiple attempts: ${fetchErr.message}`;
         const summary = failureSummary({
           scope,
           identity,
           error: 'Connection failed',
-          detail: `Failed to reach STS at ${stsUrl} after multiple attempts: ${fetchErr.message}`,
+          detail,
         });
         writeSummary(summary);
         console.log(`::error::Failed to connect to STS at ${sanitizeForCommand(stsUrl)}: ${sanitizeForCommand(fetchErr.message)}`);
+        writeErrorOutputs({
+          code: serverCode || 'action_connection_failed',
+          message: detail,
+          httpStatus: fetchErr.status,
+        });
         process.exit(1);
       }
 
       // ── Step 3: Handle STS response ────────────────────────────────────
       if (!exchangeRes.ok) {
         let detail = '';
+        let serverCode = null;
         try {
           const errJson = await exchangeRes.json();
+          serverCode = typeof errJson.code === 'string' ? errJson.code : null;
           detail = errJson.detail || JSON.stringify(errJson);
         } catch {
           detail = await exchangeRes.text().catch(() => 'unknown error');
@@ -392,6 +438,11 @@ if (require.main === module) {
         const summary = failureSummary({ scope, identity, error: errorMsg, detail });
         writeSummary(summary);
         console.log(`::error::${sanitizeForCommand(errorMsg)}`);
+        writeErrorOutputs({
+          code: serverCode || 'action_malformed_error_response',
+          message: errorMsg,
+          httpStatus: exchangeRes.status,
+        });
         process.exit(1);
       }
 
@@ -406,6 +457,11 @@ if (require.main === module) {
         });
         writeSummary(summary);
         console.log('::error::STS response did not contain a token.');
+        writeErrorOutputs({
+          code: 'action_invalid_response',
+          message: 'STS response did not contain a token.',
+          httpStatus: exchangeRes.status,
+        });
         process.exit(1);
       }
 
@@ -444,6 +500,7 @@ if (require.main === module) {
       );
     } catch (err) {
       console.log(`::error::${sanitizeForCommand(err.message)}`);
+      writeErrorOutputs({ code: 'action_internal_error', message: err.message });
       process.exit(1);
     }
   })();
@@ -452,5 +509,5 @@ if (require.main === module) {
 module.exports = {
   parseJwtClaims, formatStsError, isRetryable, fetchWithRetry,
   appendFileCommand, validateUrl, sanitizeForCommand, validateScope,
-  validateIdentity, validateApp, escapeMarkdown,
+  validateIdentity, validateApp, escapeMarkdown, writeErrorOutputs,
 };
