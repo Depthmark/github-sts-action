@@ -25,4 +25,4 @@ Le workflow ne stocke aucun jeton d'accès personnel ni clé privée de GitHub A
 
 Cette section documente l'action elle-même : ses entrées, ses sorties, ses erreurs, son cycle de vie et son versionnement.
 
-Le comportement du serveur est documenté ailleurs sur ce site. Les champs des politiques de confiance et leur évaluation sont décrits dans [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}), le point d'entrée d'échange dans la [Référence de l'API]({{< relref "/reference/api" >}}), et le déploiement du serveur dans [Déployer avec Helm]({{< relref "/integrations/deploy-with-helm" >}}).
+Le comportement du serveur est documenté ailleurs sur ce site. Les champs des politiques de confiance et leur évaluation sont décrits dans [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}), le point d'entrée d'échange dans la [Référence de l'API]({{< relref "/reference/api" >}}), et le déploiement du serveur dans [Chart Helm]({{< relref "/integrations/helm-chart" >}}).
