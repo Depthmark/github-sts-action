@@ -13,7 +13,7 @@ This page takes a workflow that has no credentials and gives it a scoped GitHub 
 
 ## Prerequisites
 
-1. A reachable github-sts server. See [Deploy with Helm]({{< relref "/integrations/deploy-with-helm" >}}) if you do not have one yet.
+1. A reachable github-sts server. See the [Helm chart quickstart]({{< relref "/integrations/helm-chart/quickstart" >}}) if you do not have one yet.
 2. A GitHub App installed on the target repository, configured on that server.
 3. A trust policy in the target repository at `.github/sts/{app}/{identity}.sts.yaml`. See [Trust Policies]({{< relref "/concepts/trust-policies" >}}) for the full field reference.
 

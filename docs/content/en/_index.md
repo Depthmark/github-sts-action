@@ -24,4 +24,4 @@ The workflow stores no personal access token and no GitHub App private key. The 
 
 This section documents the action itself: its inputs, outputs, errors, job lifecycle, and versioning.
 
-Server behavior lives elsewhere in this site. Trust policy fields and evaluation are described in [Trust Policies]({{< relref "/concepts/trust-policies" >}}), the exchange endpoint in the [API Reference]({{< relref "/reference/api" >}}), and server deployment in [Deploy with Helm]({{< relref "/integrations/deploy-with-helm" >}}).
+Server behavior lives elsewhere in this site. Trust policy fields and evaluation are described in [Trust Policies]({{< relref "/concepts/trust-policies" >}}), the exchange endpoint in the [API Reference]({{< relref "/reference/api" >}}), and server deployment in [Helm Chart]({{< relref "/integrations/helm-chart" >}}).

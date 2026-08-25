@@ -14,7 +14,7 @@ Cette page part d'un workflow sans aucune identification et lui donne un jeton d
 
 ## Prérequis
 
-1. Un serveur github-sts accessible. Voir [Déployer avec Helm]({{< relref "/integrations/deploy-with-helm" >}}) si vous n'en avez pas encore.
+1. Un serveur github-sts accessible. Voir le [démarrage rapide du chart Helm]({{< relref "/integrations/helm-chart/quickstart" >}}) si vous n'en avez pas encore.
 2. Une GitHub App installée sur le dépôt cible et configurée sur ce serveur.
 3. Une politique de confiance dans le dépôt cible, à l'emplacement `.github/sts/{app}/{identity}.sts.yaml`. Voir [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}) pour la référence complète des champs.
 
