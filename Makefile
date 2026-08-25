@@ -1,4 +1,4 @@
-.PHONY: check validate act act-ci act-release help
+.PHONY: check validate docs-check act act-ci help
 
 ACT_IMAGE ?= ghcr.io/catthehacker/ubuntu:act-24.04
 
@@ -19,6 +19,9 @@ validate: check ## Validate action.yml structure
 		if (!yaml.includes('runs:')) throw new Error('action.yml missing runs'); \
 		console.log('action.yml structure OK'); \
 	"
+
+docs-check: ## Check README and docs against action.yml and index.js
+	node docs/scripts/check-docs.js
 
 act-ci: ## Run CI workflow locally with act
 	act push \
